@@ -8,3 +8,4 @@ logs/upload.log
 /utils/__pycache__
 /d-synced2
 /__pycache__
+files_json_remote.json
