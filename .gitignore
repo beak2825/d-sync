@@ -1,0 +1,8 @@
+/d-synced
+webhooks.txt
+.encryption_key
+files.json
+folders.json
+logs/d-sync.log
+logs/upload.log
+/utils/__pycache__
