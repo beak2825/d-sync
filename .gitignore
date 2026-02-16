@@ -7,3 +7,4 @@ logs/d-sync.log
 logs/upload.log
 /utils/__pycache__
 /d-synced2
+/__pycache__

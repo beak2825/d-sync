@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from utils import (
     Logger, EncryptionManager, CompressionManager, HashManager,
     WebhookManager, D_SYNCED_DIR, FILES_JSON, FOLDERS_JSON,
-    MAX_PARTITION_SIZE, UPLOAD_LOG_FILE
+    MAX_PARTITION_SIZE, UPLOAD_LOG_FILE, FILES_JSON_UPLOAD_META
 )
 
 logger = Logger(__name__)
@@ -119,6 +119,84 @@ class D_SyncUpload:
         with open(FILES_JSON, 'w') as f:
             json.dump(metadata, f, indent=2)
         logger.info(f"Saved files metadata to {FILES_JSON}")
+        # Attempt to upload or update files.json on remote storage
+        try:
+            self._ensure_files_json_remote()
+        except Exception as e:
+            logger.debug(f"Could not ensure remote files.json: {e}")
+
+    def _ensure_files_json_remote(self):
+        """Upload files.json once and PATCH the remote message on updates.
+        Stores remote info in `FILES_JSON_UPLOAD_META`.
+        """
+        # Choose a webhook to use
+        webhook_url = self.webhook_manager.get_random_webhook()
+        if not webhook_url:
+            logger.warning("No webhook available to upload files.json")
+            return
+
+        # Read local files.json bytes
+        try:
+            with open(FILES_JSON, 'rb') as f:
+                data_bytes = f.read()
+        except Exception as e:
+            logger.error(f"Failed to read {FILES_JSON} for remote upload: {e}")
+            return
+
+        prev_meta = None
+        if FILES_JSON_UPLOAD_META.exists():
+            try:
+                with open(FILES_JSON_UPLOAD_META, 'r') as mf:
+                    prev_meta = json.load(mf)
+            except Exception:
+                prev_meta = None
+
+        # If we have previous meta, try to PATCH the message first
+        if prev_meta:
+            prev_webhook = prev_meta.get('webhook_url')
+            prev_msg_id = prev_meta.get('message_id')
+            if prev_webhook and prev_msg_id:
+                logger.info(f"Attempting to PATCH existing files.json message {prev_msg_id}")
+                resp = self.webhook_manager.patch_message(prev_webhook, prev_msg_id, data=data_bytes, filename='files.json')
+                if resp:
+                    # Update meta
+                    new_meta = {
+                        'webhook_url': prev_webhook,
+                        'message_id': resp.get('id'),
+                        'cdn_url': self.webhook_manager.extract_cdn_url(resp),
+                        'last_updated': datetime.now().isoformat()
+                    }
+                    with open(FILES_JSON_UPLOAD_META, 'w') as mf:
+                        json.dump(new_meta, mf, indent=2)
+                    logger.info("Patched remote files.json message successfully")
+                    return
+                else:
+                    logger.info("Patching files.json failed; will upload a new message")
+
+        # Upload a new message with files.json
+        logger.info("Uploading files.json to remote storage")
+        resp = self.webhook_manager.upload_bytes(webhook_url, data_bytes, 'files.json')
+        if resp:
+            msg_id = resp.get('id')
+            cdn = self.webhook_manager.extract_cdn_url(resp)
+            new_meta = {
+                'webhook_url': webhook_url,
+                'message_id': msg_id,
+                'cdn_url': cdn,
+                'last_updated': datetime.now().isoformat()
+            }
+            with open(FILES_JSON_UPLOAD_META, 'w') as mf:
+                json.dump(new_meta, mf, indent=2)
+            logger.info(f"Uploaded files.json as message {msg_id}")
+            # If there was a previous message, try to delete it for cleanup
+            if prev_meta and prev_meta.get('webhook_url') and prev_meta.get('message_id'):
+                try:
+                    self.webhook_manager.delete_message(prev_meta.get('webhook_url'), prev_meta.get('message_id'))
+                    logger.info(f"Deleted previous files.json message {prev_meta.get('message_id')}")
+                except Exception:
+                    logger.debug("Failed to delete previous files.json message")
+        else:
+            logger.error("Failed to upload files.json to remote storage")
 
     def _save_folders_metadata(self):
         """Save folders metadata to JSON"""

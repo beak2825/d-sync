@@ -21,6 +21,9 @@ FILES_JSON = BASE_DIR / "files.json"
 # Webhook options
 WEBHOOK_WAIT_PARAM = "?wait=true"
 
+# Files.json remote metadata (stores webhook and message id)
+FILES_JSON_UPLOAD_META = BASE_DIR / "files_json_remote.json"
+
 # Logging
 LOG_FILE = LOGS_DIR / "d-sync.log"
 UPLOAD_LOG_FILE = LOGS_DIR / "upload.log"

@@ -16,7 +16,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent))
 
 from utils import (
-    Logger, D_SYNCED_DIR, FILES_JSON, WEBHOOKS_FILE,
+    Logger, D_SYNCED_DIR, FILES_JSON, WEBHOOKS_FILE, BASE_DIR,
     CompressionManager, EncryptionManager, HashManager
 )
 from utils.webhook_refresh import WebhookMessageRefresh
@@ -414,7 +414,7 @@ HTML_TEMPLATE = '''
     <div class="container">
         <header>
             <h1>☁️ d-sync</h1>
-            <p>Discord-Powered File Storage</p>
+            <p>Secure Cloud File Storage</p>
         </header>
         
         <div class="main-content">
@@ -424,7 +424,7 @@ HTML_TEMPLATE = '''
                 <div class="upload-area" id="uploadArea">
                     <div class="big">📁</div>
                     <p><strong>Drag files here or click to select</strong></p>
-                    <p style="font-size: 0.9em; color: #999;">Files will be queued and uploaded to Discord automatically</p>
+                    <p style="font-size: 0.9em; color: #999;">Files will be queued and uploaded to remote storage automatically</p>
                     <input type="file" id="fileInput" multiple>
                     <button type="button" onclick="document.getElementById('fileInput').click()">Select Files</button>
                 </div>
@@ -597,7 +597,7 @@ HTML_TEMPLATE = '''
         }
         
         function deleteFile(filename) {
-            if (confirm(`Delete ${filename}? (File will be marked as deleted but kept on Discord)`)) {
+            if (confirm(`Delete ${filename}? (File will be marked as deleted but kept in remote storage)`)) {
                 fetch(`/api/delete/${encodeURIComponent(filename)}`, {
                     method: 'POST'
                 })
@@ -639,7 +639,7 @@ HTML_TEMPLATE = '''
                                 <div class="file-meta">
                                     <span>💾 ${formatFileSize(file.file_size || 0)}</span>
                                     <span class="relative-time">⏰ ${getRelativeTime(file.date_created)}</span>
-                                    <span>📦 ${(file.chunks || []).length} chunk${(file.chunks || []).length !== 1 ? 's' : ''}</span>
+                                    <span>📦 ${file.chunk_count || 0} chunk${(file.chunk_count || 0) !== 1 ? 's' : ''}</span>
                                 </div>
                             </div>
                             <div class="file-actions">
@@ -710,13 +710,28 @@ def index():
 
 @app.route('/api/files', methods=['GET'])
 def get_files():
-    """Get all files from files.json"""
+    """Get all files from files.json but sanitize sensitive fields before returning to client."""
     try:
-        if FILES_JSON.exists():
-            with open(FILES_JSON, 'r') as f:
-                data = json.load(f)
-                return jsonify(data)
-        return jsonify({'files': {}})
+        if not FILES_JSON.exists():
+            return jsonify({'files': {}})
+
+        with open(FILES_JSON, 'r') as f:
+            data = json.load(f)
+
+        sanitized = {}
+        for key, meta in data.get('files', {}).items():
+            sanitized[key] = {
+                'file_path': meta.get('file_path', key),
+                'file_size': meta.get('file_size', 0),
+                'date_created': meta.get('date_created'),
+                'file_type': meta.get('file_type'),
+                'compressed': meta.get('compressed', False),
+                'encrypted': meta.get('encrypted', False),
+                'deleted': meta.get('deleted', False),
+                'chunk_count': len(meta.get('chunks', []))
+            }
+
+        return jsonify({'last_updated': data.get('last_updated'), 'files': sanitized})
     except Exception as e:
         logger.error(f"Error reading files: {e}")
         return jsonify({'error': str(e)}), 500
@@ -816,15 +831,12 @@ def download_file(filename):
         if not success:
             return jsonify({'error': 'Failed to download file'}), 500
         
-        # Send the reconstructed file
-        file_path = D_SYNCED_DIR / filename
-        if file_path.exists():
-            return send_file(
-                str(file_path),
-                as_attachment=True,
-                download_name=filename
-            )
-        
+        # Send the reconstructed file. check known output locations (d-synced and d-synced2)
+        candidates = [D_SYNCED_DIR / filename, BASE_DIR / 'd-synced2' / filename]
+        for p in candidates:
+            if p.exists():
+                return send_file(str(p), as_attachment=True, download_name=filename)
+
         return jsonify({'error': 'File not found after download'}), 500
         
     except Exception as e:

@@ -68,3 +68,41 @@ class WebhookManager:
         except (KeyError, IndexError, TypeError) as e:
             logger.error(f"Failed to extract CDN URL from response: {e}")
         return None
+
+    def patch_message(self, webhook_url: str, message_id: str, file_path: Optional[Path] = None, data: Optional[bytes] = None, filename: Optional[str] = None) -> Optional[Dict]:
+        """Patch (edit) a webhook message. Attempts to replace the attachment by PATCHing with a new file.
+        Returns the message JSON on success or None on failure."""
+        try:
+            base = webhook_url.rstrip('/')
+            url = f"{base}/messages/{message_id}"
+
+            if file_path is not None:
+                with open(file_path, 'rb') as f:
+                    files = {'file': f}
+                    response = requests.patch(url, files=files, timeout=60)
+            elif data is not None and filename is not None:
+                files = {'file': (filename, data)}
+                response = requests.patch(url, files=files, timeout=60)
+            else:
+                # No file provided, just try to edit the content to touch the message
+                response = requests.patch(url, json={'content': ''}, timeout=60)
+
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to patch message {message_id}: {e}")
+            return None
+
+    def delete_message(self, webhook_url: str, message_id: str) -> bool:
+        """Delete a webhook message. Returns True on success."""
+        try:
+            base = webhook_url.rstrip('/')
+            url = f"{base}/messages/{message_id}"
+            response = requests.delete(url, timeout=60)
+            if response.status_code in (200, 204):
+                return True
+            logger.warning(f"Delete message returned status {response.status_code}")
+            return False
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to delete message {message_id}: {e}")
+            return False
