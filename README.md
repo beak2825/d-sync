@@ -5,6 +5,7 @@ A Python-based file synchronization system that uses Discord webhooks as unlimit
 ## Features
 
 ✨ **Automatic File Sync** - Monitor `d-synced` folder and automatically upload new files
+🌐 **Web Dashboard** - Beautiful localhost web interface for managing files
 🔐 **Encryption** - Files are encrypted with Fernet symmetric encryption before upload
 📦 **Compression** - Files larger than 100KB are automatically compressed with zlib
 🔗 **File Partitioning** - Large files are split into 9.99MB chunks for Discord
@@ -14,29 +15,78 @@ A Python-based file synchronization system that uses Discord webhooks as unlimit
 📂 **Folder Structure** - Automatically creates and tracks folder metadata
 🔄 **Download & Restore** - Easily download and restore encrypted/compressed files
 
+## 🌐 Web Interface
+
+Access the d-sync dashboard at `http://localhost:5000` to:
+- 📤 Upload files via drag-and-drop
+- 📂 Browse all uploaded files with real-time updates
+- 📥 Download and restore files
+- 🗑️ Delete files (soft delete)
+- 📊 View storage statistics and encryption status
+- ⏰ See relative timestamps ("2 hours ago", "just now", etc.)
+
+### Quick Start Web Interface
+
+```bash
+# Option 1: Windows batch file (double-click)
+open_dsync.bat
+
+# Option 2: Python script
+python open_dsync.py
+
+# Option 3: Direct run
+python d_sync_web.py
+
+# Then open: http://localhost:5000
+```
+
+For detailed web interface documentation, see [WEB_INTERFACE.md](WEB_INTERFACE.md)
+
 ## Project Structure
 
 ```
 d-sync/
-├── d-synced/              # Main folder to sync (add your folders/files here)
-├── logs/                  # Log files
-│   ├── d-sync.log         # Main log
-│   ├── upload.log         # Upload responses
-│   └── download.log       # Download responses
-├── utils/                 # Utility modules
+├── Core Scripts
+│   ├── d_sync_upload.py       # Main upload service
+│   ├── d_sync_download.py     # Download/restore service
+│   └── d_sync_web.py          # Web interface server
+│
+├── Launchers
+│   ├── open_dsync.bat         # Windows launcher (double-click)
+│   └── open_dsync.py          # Python launcher
+│
+├── Utilities (utils/)
 │   ├── __init__.py
-│   ├── config.py          # Configuration and constants
-│   ├── logger.py          # Logging utilities
-│   ├── encryption.py      # Encryption/decryption
-│   ├── compression.py     # Compression/decompression
-│   ├── hashing.py         # File hashing (SHA256)
-│   └── webhook_handler.py # Discord webhook management
-├── d_sync_upload.py       # Main upload script
-├── d_sync_download.py     # Download/restore script
-├── files.json             # File metadata (auto-generated)
-├── folders.json           # Folder metadata (auto-generated)
-├── webhooks.txt           # Discord webhook URLs (add your own)
-└── README.md              # This file
+│   ├── config.py              # Configuration and constants
+│   ├── logger.py              # Logging utilities
+│   ├── encryption.py          # Encryption/decryption
+│   ├── compression.py         # Compression/decompression
+│   ├── hashing.py             # File hashing (SHA256)
+│   ├── webhook_handler.py     # Discord webhook management
+│   └── webhook_refresh.py     # Webhook message refresh
+│
+├── Data Directories
+│   ├── d-synced/              # Your files go here
+│   └── logs/                  # Operation logs
+│
+├── Metadata Files
+│   ├── files.json             # File metadata (auto-generated)
+│   ├── folders.json           # Folder metadata (auto-generated)
+│   └── webhooks.txt           # Discord webhook URLs
+│
+├── Documentation
+│   ├── README.md              # This file
+│   ├── QUICKSTART.md          # 5-minute setup
+│   ├── SETUP.md               # Detailed setup
+│   ├── EXAMPLES.md            # Usage examples
+│   ├── WEB_INTERFACE.md       # Web dashboard guide
+│   └── PROJECT_OVERVIEW.md    # Architecture overview
+│
+├── Configuration
+│   └── requirements.txt       # Python dependencies
+│
+└── Runtime Files (auto-generated)
+    └── .encryption_key       # Your encryption key
 ```
 
 ## Installation
@@ -45,6 +95,7 @@ d-sync/
 
 - Python 3.8+
 - pip (Python package manager)
+- Chrome/Chromium (for web interface)
 
 ### Setup
 
@@ -55,8 +106,13 @@ cd d-sync
 
 2. Install required dependencies:
 ```bash
-pip install requests cryptography
+pip install -r requirements.txt
 ```
+
+This installs:
+- `requests` - HTTP library for Discord API
+- `cryptography` - For Fernet encryption
+- `flask` - For web interface
 
 3. Create Discord webhooks:
    - Go to your Discord server
@@ -64,18 +120,51 @@ pip install requests cryptography
    - Click "Create Webhook"
    - Give it a name (e.g., "d-sync-storage")
    - Copy the webhook URL
-   - Create multiple webhooks for better distribution and redundancy
+   - Create multiple webhooks (5-10 recommended) for better distribution and redundancy
 
 4. Add webhook URLs to `webhooks.txt`:
 ```
-https://discordapp.com/api/webhooks/YOUR_ID_1/YOUR_TOKEN_1
-https://discordapp.com/api/webhooks/YOUR_ID_2/YOUR_TOKEN_2
-https://discordapp.com/api/webhooks/YOUR_ID_3/YOUR_TOKEN_3
+https://discord.com/api/webhooks/YOUR_ID_1/YOUR_TOKEN_1
+https://discord.com/api/webhooks/YOUR_ID_2/YOUR_TOKEN_2
+https://discord.com/api/webhooks/YOUR_ID_3/YOUR_TOKEN_3
 ```
 
 ## Usage
 
-### Uploading Files
+### Method 1: Using Web Interface (Recommended for Most Users)
+
+**Start the Dashboard:**
+```bash
+# Windows - Double-click the batch file
+open_dsync.bat
+
+# Or run the Python launcher
+python open_dsync.py
+
+# Or start Flask directly
+python d_sync_web.py
+```
+
+This will open `http://localhost:5000` in Chrome automatically.
+
+**Using the Web Dashboard:**
+1. **Upload Files:** Drag & drop files into the upload area (or click "Select Files")
+2. **Monitor Status:** Watch real-time upload progress and storage statistics  
+3. **Browse Files:** See all uploaded files sorted by date (most recent first)
+4. **Download Files:** Click "Download" button to restore any file
+5. **Delete Files:** Click "Delete" to mark as deleted (kept on Discord for recovery)
+
+**Benefits:**
+- 🖱️ Easy drag-and-drop interface
+- 📊 Real-time status monitoring
+- 📁 Browse files with rich metadata
+- ⏰ Relative timestamps ("2 hours ago")
+- 🔄 Live file list updates every 2 seconds
+- 📱 Beautiful, responsive design
+
+### Method 2: Command-Line Upload (For Automation)
+
+#### Upload Files
 
 1. Add files/folders to the `d-synced` folder:
 ```
@@ -105,9 +194,18 @@ The script will:
 
 The script checks every 60 seconds for new files. You can modify this interval by changing the `watch()` call parameter.
 
-### Downloading Files
+### Download & Restore Files
 
-Once files are uploaded, use:
+#### Method 1: Web Interface (Easy)
+
+1. Open the dashboard: `http://localhost:5000`
+2. Browse files in the "Files" section
+3. Click the **Download** button next to any file
+4. Browser downloads the reconstructed file automatically
+5. File is automatically decrypted and decompressed
+
+#### Method 2: Command-Line (Batch)
+
 
 ```bash
 python d_sync_download.py

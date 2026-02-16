@@ -15,10 +15,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from utils import (
     Logger, EncryptionManager, CompressionManager, HashManager,
-    D_SYNCED_DIR, FILES_JSON, MAX_PARTITION_SIZE, DOWNLOAD_LOG_FILE
+    FILES_JSON, MAX_PARTITION_SIZE, DOWNLOAD_LOG_FILE, BASE_DIR
 )
+from utils.webhook_refresh import WebhookMessageRefresh
 
 logger = Logger(__name__)
+
+# Download to d-synced2 for testing
+D_SYNCED2_DIR = BASE_DIR / "d-synced2"
 
 
 class D_SyncDownload:
@@ -45,13 +49,60 @@ class D_SyncDownload:
         except json.JSONDecodeError as e:
             logger.error(f"Could not parse files.json: {e}")
 
-    def _download_chunk(self, cdn_url: str) -> Optional[bytes]:
-        """Download a chunk from Discord CDN"""
+    def _refresh_webhook_message(self, webhook_url: str, chunk_filename: str) -> Optional[str]:
+        """
+        Try to refresh a webhook message by getting recent messages
+        and finding the file matching our chunk
+        """
+        try:
+            webhook_id, webhook_token = WebhookMessageRefresh.parse_webhook_url(webhook_url)
+            
+            # Get webhook info to find channel ID
+            webhook_info_url = f"https://discord.com/api/webhooks/{webhook_id}/{webhook_token}"
+            response = requests.get(webhook_info_url, timeout=10)
+            response.raise_for_status()
+            webhook_data = response.json()
+            
+            channel_id = webhook_data.get('channel_id')
+            if not channel_id:
+                logger.warning("Could not get channel ID from webhook")
+                return None
+            
+            # Try to get recent messages (requires bot token, may fail)
+            # For now, we'll just log the attempt
+            logger.debug(f"Attempted to refresh message for {chunk_filename}")
+            return None
+            
+        except requests.exceptions.RequestException as e:
+            logger.debug(f"Could not refresh webhook message: {e}")
+            return None
+
+    def _download_chunk(self, cdn_url: str, webhook_url: Optional[str] = None, 
+                       chunk_filename: Optional[str] = None) -> Optional[bytes]:
+        """Download a chunk from Discord CDN with 404 fallback"""
         try:
             response = requests.get(cdn_url, timeout=60)
+            
+            # Check for 404 - try webhook refresh
+            if response.status_code == 404:
+                logger.warning(f"CDN URL returned 404: {cdn_url}")
+                
+                if webhook_url and chunk_filename:
+                    logger.info(f"Attempting to refresh webhook message for {chunk_filename}")
+                    new_url = self._refresh_webhook_message(webhook_url, chunk_filename)
+                    
+                    if new_url:
+                        logger.info(f"Retrying with refreshed URL")
+                        response = requests.get(new_url, timeout=60)
+                
+                if response.status_code == 404:
+                    logger.error(f"File expired on Discord CDN: {chunk_filename}")
+                    return None
+            
             response.raise_for_status()
             logger.debug(f"Downloaded chunk from {cdn_url}")
             return response.content
+            
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to download chunk: {e}")
             return None
@@ -95,21 +146,26 @@ class D_SyncDownload:
             for chunk_info in chunks:
                 chunk_index = chunk_info.get('chunk_index')
                 cdn_url = chunk_info.get('cdn_url')
+                webhook_url = chunk_info.get('webhook_url')
+                chunk_hash = chunk_info.get('chunk_hash')
 
                 if not cdn_url:
                     logger.error(f"No CDN URL for chunk {chunk_index}")
                     return False
 
-                chunk_data = self._download_chunk(cdn_url)
+                # Create chunk filename for logging
+                chunk_filename = f"{file_path}_chunk_{chunk_index}.bin"
+                
+                chunk_data = self._download_chunk(cdn_url, webhook_url, chunk_filename)
                 if not chunk_data:
                     logger.error(f"Failed to download chunk {chunk_index}")
                     return False
 
                 # Verify chunk hash
-                chunk_hash = HashManager.calculate_chunk_hash(chunk_data)
+                calculated_hash = HashManager.calculate_chunk_hash(chunk_data)
                 expected_hash = chunk_info.get('chunk_hash')
 
-                if chunk_hash != expected_hash:
+                if calculated_hash != expected_hash:
                     logger.error(
                         f"Chunk hash mismatch for {file_path} chunk {chunk_index}"
                     )
@@ -117,6 +173,7 @@ class D_SyncDownload:
 
                 downloaded_chunks[chunk_index] = chunk_data
                 logger.debug(f"Downloaded and verified chunk {chunk_index}")
+
 
             # Reconstruct file
             reconstructed_data = b''
@@ -147,7 +204,7 @@ class D_SyncDownload:
                 return False
 
             # Write to file
-            output_path = D_SYNCED_DIR / file_path
+            output_path = D_SYNCED2_DIR / file_path
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
             with open(output_path, 'wb') as f:
@@ -217,7 +274,11 @@ def main():
     success_count = download.download_all_files()
 
     logger.info(f"\nDownload complete: {success_count} files successfully downloaded")
-    logger.info(f"Files are restored to: {D_SYNCED_DIR}")
+    logger.info(f"Files are restored to: {D_SYNCED2_DIR}")
+
+
+if __name__ == '__main__':
+    main()
 
 
 if __name__ == '__main__':
